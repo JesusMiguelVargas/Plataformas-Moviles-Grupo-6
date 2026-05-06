@@ -63,6 +63,7 @@ fun AppNavigation() {
 
         composable(route = AppScreens.ScadaEditor.route) {
             // Pasamos el MISMO scadaViewModel para que pueda LEER la imagen generada
+            // Actualización
             ScadaEditorScreen(navController, scadaViewModel)
         }
     }
