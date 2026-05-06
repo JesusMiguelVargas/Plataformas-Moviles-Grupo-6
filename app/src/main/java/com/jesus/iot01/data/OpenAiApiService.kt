@@ -20,4 +20,4 @@ data class ImageRequest(
 )
 
 data class ImageResponse(val data: List<ImageData>)
-data class ImageData(val url: String)
+data class ImageData(val url: String) // Actualización

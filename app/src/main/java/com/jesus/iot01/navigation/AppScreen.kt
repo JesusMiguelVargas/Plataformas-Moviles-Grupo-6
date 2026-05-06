@@ -15,7 +15,7 @@ sealed class AppScreens(val route: String) {
 
     object ScadaList : AppScreens("scada_list_screen")   // La nueva pestaña principal
 
-    object ScadaEditor : AppScreens("scada_editor_screen")
+    object ScadaEditor : AppScreens("scada_editor_screen") // Actualización
 
 
 
