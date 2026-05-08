@@ -23,7 +23,7 @@ import com.jesus.iot01.navigation.AppScreens
 @Composable
 fun ScadaPromptScreen(
     navController: NavController,
-    viewModel: ScadaGenerationViewModel = viewModel() // Inyección del ViewModel corregido
+    viewModel: ScadaGenerationViewModel = viewModel()
 ) {
     var promptText by remember { mutableStateOf("") }
 
@@ -84,7 +84,7 @@ fun ScadaPromptScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Campo de texto para el Prompt
+
             OutlinedTextField(
                 value = promptText,
                 onValueChange = { promptText = it },

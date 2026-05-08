@@ -21,9 +21,7 @@ import com.jesus.iot01.ui.scada.ScadaGenerationViewModel // Importante: Importar
 fun AppNavigation() {
     val navController = rememberNavController()
 
-    // --- INSTANCIA COMPARTIDA ---
-    // Al crear el ViewModel aquí, actuará como un "cerebro compartido"
-    // para todas las pantallas del SCADA.
+
     val scadaViewModel: ScadaGenerationViewModel = viewModel()
 
     NavHost(
@@ -50,20 +48,21 @@ fun AppNavigation() {
             VariablesScreen(navController)
         }
 
-        // --- PANTALLAS DE SCADA (PASANDO EL VIEWMODEL) ---
+        // --- PANTALLAS DE SCADA (PASANDO EL VIEWMODEL)
 
         composable(route = AppScreens.ScadaPrompt.route) {
-            // Pasamos scadaViewModel para que pueda INICIAR la generación
+
             ScadaPromptScreen(navController, scadaViewModel)
         }
 
         composable(route = AppScreens.ScadaList.route) {
-            ScadaListScreen(navController)
+            ScadaListScreen(navController, scadaViewModel)
         }
 
         composable(route = AppScreens.ScadaEditor.route) {
             // Pasamos el MISMO scadaViewModel para que pueda LEER la imagen generada
             // Actualización nueva Aneli...
+
             ScadaEditorScreen(navController, scadaViewModel)
         }
     }

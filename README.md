@@ -3,3 +3,6 @@
 ## Integrantes
 - Jose Robles
 - Aneli Martínez
+- 
+- 
+- 

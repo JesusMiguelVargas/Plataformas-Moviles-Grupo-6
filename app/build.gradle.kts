@@ -37,6 +37,16 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/LICENSE.txt"
+            excludes += "/META-INF/NOTICE"
+            excludes += "/META-INF/NOTICE.txt"
+        }
+    }
 }
 
 dependencies {
@@ -55,24 +65,25 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // 1. Coil para cargar imágenes desde URLs o Bitmaps en Compose
+    // Coil
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // 2. Google Generative AI SDK para usar Gemini
-    implementation("com.google.ai.client.generativeai:generativeai:0.4.0")
+    // Retrofit + OkHttp
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
-    dependencies {
-        // ... tus otras dependencias
+    // Gson
+    implementation("com.google.code.gson:gson:2.10.1")
 
-        // 1. Coil para mostrar la imagen generada
-        implementation("io.coil-kt:coil-compose:2.6.0")
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-        // 2. Retrofit + OkHttp para las peticiones a OpenAI
-        implementation("com.squareup.retrofit2:retrofit:2.9.0")
-        implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-        implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-    }
+    // ViewModel
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
 }
