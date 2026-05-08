@@ -9,7 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,9 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.jesus.iot01.navigation.AppScreens
 
-// Modelo de datos ficticio para probar la UI
 data class SensorVariable(
     val id: String,
     val name: String,
@@ -34,7 +34,6 @@ data class SensorVariable(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VariablesScreen(navController: NavController) {
-    // ESTADO: Lista de variables (por ahora ficticia)
     var currentVariables by remember {
         mutableStateOf(
             listOf(
@@ -46,55 +45,67 @@ fun VariablesScreen(navController: NavController) {
         )
     }
 
-    // ESTADO: Controlar la visibilidad del Pop-up
     var showAddDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
-    // ESTADO: Navegación inferior
-    var selectedItem by remember { mutableIntStateOf(0) }
-    val navItems = listOf("Variables", "SCADA")
-    val navIcons = listOf(Icons.Default.List, Icons.Default.GridView) // Íconos típicos de lista y grilla
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Mis Variables", fontWeight = FontWeight.Bold) },
                 actions = {
-                    IconButton(onClick = { /* Configuración general */ }) {
-                        Icon(Icons.Default.Settings, contentDescription = null)
+                    //  Botón salir — reemplaza el engranaje
+                    IconButton(onClick = { showLogoutDialog = true }) {
+                        Icon(
+                            Icons.Default.Logout,
+                            contentDescription = "Cerrar sesión",
+                            tint = Color(0xFFE53935)
+                        )
                     }
                 }
             )
         },
-        // --- AQUÍ AÑADIMOS EL NAVIGATION BAR INFERIOR (Como Imagen 2) ---
         bottomBar = {
             NavigationBar(
                 containerColor = Color.White,
                 tonalElevation = 8.dp
             ) {
-                navItems.forEachIndexed { index, item ->
-                    NavigationBarItem(
-                        icon = { Icon(navIcons[index], contentDescription = item) },
-                        label = { Text(item) },
-                        selected = selectedItem == index,
-                        onClick = {
-                            selectedItem = index
-                            // Navegación real
-                            if (index == 1) { // Si hace clic en SCADA
-                                navController.navigate(AppScreens.ScadaList.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.List, contentDescription = "Variables") },
+                    label = { Text("Variables") },
+                    selected = currentRoute == AppScreens.Variables.route,
+                    onClick = {
+                        if (currentRoute != AppScreens.Variables.route) {
+                            navController.navigate(AppScreens.Variables.route) {
+                                popUpTo(navController.graph.findStartDestination().id)
+                                launchSingleTop = true
                             }
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFF2196F3), // Azul técnico
-                            selectedTextColor = Color(0xFF2196F3)
-                        )
+                        }
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF2196F3),
+                        selectedTextColor = Color(0xFF2196F3)
                     )
-                }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.GridView, contentDescription = "SCADA") },
+                    label = { Text("SCADA") },
+                    selected = currentRoute == AppScreens.ScadaList.route || currentRoute == AppScreens.ScadaPrompt.route,
+                    onClick = {
+                        if (currentRoute != AppScreens.ScadaList.route) {
+                            navController.navigate(AppScreens.ScadaList.route) {
+                                popUpTo(navController.graph.findStartDestination().id)
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF2196F3),
+                        selectedTextColor = Color(0xFF2196F3)
+                    )
+                )
             }
         }
     ) { padding ->
@@ -104,29 +115,37 @@ fun VariablesScreen(navController: NavController) {
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-            // 1. Estado de Conexión (lo mantenemos porque es SaaS IoT)
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
             ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("●", color = Color(0xFF4CAF50), modifier = Modifier.padding(end = 8.dp)) // Punto verde
-                    Text("Gateway: Vargas/Taller - Online", color = Color(0xFF1976D2), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("●", color = Color(0xFF4CAF50), modifier = Modifier.padding(end = 8.dp))
+                    Text(
+                        "Gateway: Vargas/Taller - Online",
+                        color = Color(0xFF1976D2),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
-            // 2. --- SECCIÓN DE AÑADIR VARIABLE (Compacto y arriba de las cards) ---
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = "Tus Sensores", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-
-                // Botón compacto (con ícono y texto pequeño)
                 Button(
-                    onClick = { showAddDialog = true }, // Abre el Pop-up
+                    onClick = { showAddDialog = true },
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -136,7 +155,6 @@ fun VariablesScreen(navController: NavController) {
                 }
             }
 
-            // 3. Grilla de sensores (mantenemos 2 variables por fila, como te gusta)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -154,9 +172,35 @@ fun VariablesScreen(navController: NavController) {
         }
     }
 
-    // --- POP-UP PARA AÑADIR NUEVA VARIABLE ( AlertDialog) ---
+    //  Diálogo confirmar salida
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Cerrar sesión", fontWeight = FontWeight.Bold) },
+            text = { Text("¿Estás seguro que deseas salir?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutDialog = false
+                        navController.navigate(AppScreens.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                ) {
+                    Text("Salir", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Diálogo añadir variable
     if (showAddDialog) {
-        // Contemplando MQTT
         var newVariableName by remember { mutableStateOf("") }
         var newVariableTopic by remember { mutableStateOf("") }
         var newVariableUnit by remember { mutableStateOf("") }
@@ -166,25 +210,23 @@ fun VariablesScreen(navController: NavController) {
             title = { Text("Nueva Variable de Sensor") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Configura la variable para vincularla a un tópico MQTT.", fontSize = 14.sp, color = Color.Gray)
-
+                    Text("Vincula esta variable a un tópico MQTT.", fontSize = 14.sp, color = Color.Gray)
                     OutlinedTextField(
                         value = newVariableName,
                         onValueChange = { newVariableName = it },
-                        label = { Text("Nombre (ej: Temperatura Horno)") },
+                        label = { Text("Nombre") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = newVariableTopic,
                         onValueChange = { newVariableTopic = it },
-                        label = { Text("Tópico MQTT (ej: horno/sensor1/temp)") },
-                        placeholder = { Text("Es el ID de tu equipo mecatrónico") },
+                        label = { Text("Tópico MQTT") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = newVariableUnit,
                         onValueChange = { newVariableUnit = it },
-                        label = { Text("Unidad (ej: °C, Bar, V, %)") },
+                        label = { Text("Unidad") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -192,14 +234,11 @@ fun VariablesScreen(navController: NavController) {
             confirmButton = {
                 Button(
                     onClick = {
-                        // Por ahora solo cerramos el diálogo y limpiamos
-                        // Lógica futura: Validar y guardar en base de datos SaaS
                         if (newVariableName.isNotBlank() && newVariableTopic.isNotBlank()) {
-                            // Simulación: Añadir a la lista local
                             currentVariables = currentVariables + SensorVariable(
                                 (currentVariables.size + 1).toString(),
                                 newVariableName,
-                                "--", // Valor inicial vacío hasta que llegue MQTT
+                                "--",
                                 newVariableUnit,
                                 newVariableTopic
                             )
@@ -219,7 +258,6 @@ fun VariablesScreen(navController: NavController) {
     }
 }
 
-// Mantenemos tu SensorCard favorita
 @Composable
 fun SensorCard(label: String, value: String, unit: String) {
     Card(

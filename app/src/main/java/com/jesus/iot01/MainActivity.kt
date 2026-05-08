@@ -11,7 +11,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             Iot01Theme {
-                // AQUÍ ESTÁ LA MAGIA: Llamamos al navegador, no a una pantalla suelta
+
                 AppNavigation()
             }
         }

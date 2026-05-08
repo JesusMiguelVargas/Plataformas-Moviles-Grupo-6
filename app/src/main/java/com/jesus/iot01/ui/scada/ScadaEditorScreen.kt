@@ -3,44 +3,41 @@ package com.jesus.iot01.ui.scada
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.jesus.iot01.navigation.AppScreens
 import kotlin.math.roundToInt
 
-// --- MODELOS DE DATOS ---
 data class PlacedSensor(
     val id: String,
     val name: String,
     val value: String,
     val unit: String,
-    val offset: Offset
+    var offset: Offset
 )
 
 data class AvailableSensor(
@@ -53,77 +50,98 @@ data class AvailableSensor(
 @Composable
 fun ScadaEditorScreen(
     navController: NavController,
-    viewModel: ScadaGenerationViewModel // Recibe el ViewModel compartido desde AppNavigation
+    viewModel: ScadaGenerationViewModel
 ) {
     val context = LocalContext.current
 
-    // --- 1. FORZAR ORIENTACIÓN HORIZONTAL ---
     DisposableEffect(Unit) {
         val activity = context as? Activity
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         onDispose {
-            // Al salir de esta pantalla, devolvemos el control de orientación al sistema
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
-    // --- 2. ESTADOS DEL EDITOR ---
-    val placedSensors = remember { mutableStateListOf<PlacedSensor>() }
+    val preloadedScada = viewModel.editingScadaId?.let { id ->
+        viewModel.savedScadas.find { it.id == id }
+    }
+
+    val placedSensors = remember {
+        mutableStateListOf<PlacedSensor>().apply {
+            preloadedScada?.sensors?.forEach { s ->
+                add(PlacedSensor(s.id, s.name, s.value, s.unit, Offset(s.offsetX, s.offsetY)))
+            }
+        }
+    }
+
     val availableSensors = remember {
         mutableStateListOf(
             AvailableSensor("1", "Voltaje Batería", "V"),
             AvailableSensor("2", "Estado Motor", ""),
             AvailableSensor("3", "Temperatura Central", "°C"),
             AvailableSensor("4", "Presión Sistema", "Bar")
-        )
+        ).apply {
+            preloadedScada?.sensors?.forEach { saved ->
+                removeAll { it.id == saved.id }
+            }
+        }
     }
 
     var isPaletteExpanded by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var saveTitle by remember { mutableStateOf(preloadedScada?.title ?: "") }
 
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
-    val paletteWidth = screenWidth / 3.5f // Ajustamos el ancho del panel lateral
-    val animatedPaletteWidth by animateDpAsState(targetValue = if (isPaletteExpanded) paletteWidth else 0.dp)
+    val paletteWidth = screenWidth * 0.32f
 
-    // --- 3. UI PRINCIPAL ---
+    val animatedPaletteWidth by animateDpAsState(
+        targetValue = if (isPaletteExpanded) paletteWidth else 0.dp,
+        animationSpec = tween(durationMillis = 250),
+        label = "PaletteAnimation"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F0F)) // Fondo ultra oscuro para resaltar el SCADA
+            .background(Color(0xFF0D0D0D))
     ) {
-        // --- LIENZO SCADA ---
+        // -LIENZO SCADA
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(8.dp)
-                .background(Color(0xFF1A1A1A), RoundedCornerShape(12.dp)),
+                .padding(
+                    end = if (isPaletteExpanded) paletteWidth else 0.dp,
+                    top = 8.dp, start = 8.dp, bottom = 8.dp
+                ),
             contentAlignment = Alignment.Center
         ) {
-            // --- FONDO GENERADO POR IA (DALL-E 3) ---
-            if (viewModel.generatedImageUrl != null) {
-                AsyncImage(
-                    model = viewModel.generatedImageUrl,
-                    contentDescription = "Fondo Industrial Generado",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds // Estira la imagen para cubrir el lienzo horizontal
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF1A1A2E), RoundedCornerShape(12.dp))
+            )
+
+            val bitmap = viewModel.generatedBitmap
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Fondo SCADA",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Transparent, RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
                 )
-            } else {
-                // Estado de espera por si la URL tarda en propagarse
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFF673AB7))
-                    Spacer(Modifier.height(8.dp))
-                    Text("Cargando lienzo...", color = Color.Gray, fontSize = 12.sp)
-                }
             }
 
-            // --- CAPA DE SENSORES ARRASTRABLES ---
             placedSensors.forEachIndexed { index, sensor ->
                 var currentOffset by remember { mutableStateOf(sensor.offset) }
-
                 Box(
                     modifier = Modifier
-                        .offset { IntOffset(currentOffset.x.roundToInt(), currentOffset.y.roundToInt()) }
+                        .offset {
+                            IntOffset(currentOffset.x.roundToInt(), currentOffset.y.roundToInt())
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures { change, dragAmount ->
                                 change.consume()
@@ -131,119 +149,195 @@ fun ScadaEditorScreen(
                                 placedSensors[index] = sensor.copy(offset = currentOffset)
                             }
                         }
-                        .background(
-                            color = Color(0xDD2196F3), // Azul semi-transparente
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(sensor.name, fontSize = 8.sp, color = Color.White.copy(alpha = 0.8f))
-                        Text("${sensor.value} ${sensor.unit}", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.ExtraBold)
-                    }
+                    SensorCard(name = sensor.name, value = sensor.value, unit = sensor.unit)
                 }
             }
         }
 
-        // --- BOTONES FLOTANTES DE CONTROL ---
-
-        // Salir (Esquina Superior Izquierda)
-        IconButton(
-            onClick = { showExitDialog = true },
+        // BARRA SUPERIOR
+        Row(
             modifier = Modifier
-                .padding(16.dp)
-                .size(40.dp)
-                .background(Color(0xFFE53935), CircleShape)
-                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White, modifier = Modifier.size(20.dp))
-        }
-
-        // Guardar (Esquina Superior Derecha)
-        Button(
-            onClick = { navController.navigate(AppScreens.ScadaList.route) },
-            modifier = Modifier
-                .padding(16.dp)
-                .height(40.dp)
-                .align(Alignment.TopEnd),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047)),
-            shape = RoundedCornerShape(8.dp),
-            elevation = ButtonDefaults.buttonElevation(4.dp)
-        ) {
-            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Guardar Vista", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-
-        // --- MANIJA DEL PANEL LATERAL ---
-        if (!isPaletteExpanded) {
-            Surface(
+            IconButton(
+                onClick = { showExitDialog = true },
                 modifier = Modifier
-                    .width(40.dp)
-                    .height(90.dp)
-                    .align(Alignment.CenterEnd)
-                    .clickable { isPaletteExpanded = true },
-                color = Color(0xFF673AB7),
-                shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
-                shadowElevation = 4.dp
+                    .size(40.dp)
+                    .background(Color(0xFFE53935), CircleShape)
             ) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = "Abrir Sensores", tint = Color.White, modifier = Modifier.padding(8.dp))
+                Icon(Icons.Default.Close, contentDescription = "Salir", tint = Color.White)
+            }
+
+            // Botón guardar — muestra loading mientras sube a AWS
+            Button(
+                onClick = { showSaveDialog = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                enabled = !viewModel.isSaving
+            ) {
+                if (viewModel.isSaving) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Guardando...", color = Color.White, fontSize = 14.sp)
+                } else {
+                    Icon(
+                        Icons.Default.Save,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color.White
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Guardar",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+                }
             }
         }
 
-        // --- PANEL DE SENSORES (DRAWER) ---
+        // BOTÓN ABRIR PANEL
+        if (!isPaletteExpanded) {
+            Button(
+                onClick = { isPaletteExpanded = true },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(48.dp)
+                    .height(80.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5E35B1)),
+                shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+                contentPadding = PaddingValues(0.dp),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
+            ) {
+                Icon(
+                    Icons.Default.ChevronLeft,
+                    contentDescription = "Abrir sensores",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        // PANEL LATERAL
         Surface(
             modifier = Modifier
                 .width(animatedPaletteWidth)
                 .fillMaxHeight()
                 .align(Alignment.CenterEnd),
-            color = Color.White,
-            tonalElevation = 12.dp,
-            shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp)
+            color = Color(0xFF1E1E2E),
+            tonalElevation = 16.dp,
+            shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
         ) {
-            if (isPaletteExpanded) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            if (animatedPaletteWidth > 40.dp) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Sensores", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF333333))
-                        IconButton(onClick = { isPaletteExpanded = false }) {
-                            Icon(Icons.Default.ChevronRight, contentDescription = "Cerrar", tint = Color.Gray)
+                        IconButton(
+                            onClick = { isPaletteExpanded = false },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFF5E35B1), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.ChevronRight,
+                                contentDescription = "Cerrar panel",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "Variables",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = Color(0xFF3A3A5C))
+                    Spacer(Modifier.height(8.dp))
+
+                    if (availableSensors.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Todas las variables\nfueron colocadas",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 8.dp), thickness = 0.5.dp)
-
-                    // Lista de sensores disponibles
                     availableSensors.forEach { sensor ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 5.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+                                .padding(vertical = 4.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF2A2A3E)),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                modifier = Modifier.padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(sensor.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text("Unidad: ${sensor.unit}", fontSize = 10.sp, color = Color.Gray)
+                                    Text(
+                                        sensor.name,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        color = Color.White
+                                    )
+                                    if (sensor.unit.isNotBlank()) {
+                                        Text(
+                                            sensor.unit,
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF9E9EBF)
+                                        )
+                                    }
                                 }
                                 IconButton(
                                     onClick = {
-                                        // Añadimos el sensor al centro del lienzo
                                         placedSensors.add(
-                                            PlacedSensor(sensor.id, sensor.name, "--", sensor.unit, Offset(400f, 250f))
+                                            PlacedSensor(
+                                                sensor.id, sensor.name, "0.0",
+                                                sensor.unit, Offset(300f, 200f)
+                                            )
                                         )
                                         availableSensors.remove(sensor)
                                     },
-                                    modifier = Modifier.size(32.dp).background(Color(0xFF673AB7), CircleShape)
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .background(Color(0xFF5E35B1), CircleShape)
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Añadir", tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }
@@ -253,29 +347,167 @@ fun ScadaEditorScreen(
         }
     }
 
-    // --- DIÁLOGO DE CONFIRMACIÓN AL SALIR ---
-    if (showExitDialog) {
+    // DIÁLOGO GUARDAR
+    if (showSaveDialog) {
         AlertDialog(
-            onDismissRequest = { showExitDialog = false },
-            title = { Text("¿Cerrar Editor?", fontWeight = FontWeight.Bold) },
-            text = { Text("Si sales ahora no se guardará la posición de tus sensores.") },
+            onDismissRequest = { if (!viewModel.isSaving) showSaveDialog = false },
+            containerColor = Color(0xFF1E1E2E),
+            title = {
+                Text("Guardar SCADA", fontWeight = FontWeight.Bold, color = Color.White)
+            },
+            text = {
+                Column {
+                    Text(
+                        "Asigna un nombre a esta vista:",
+                        fontSize = 13.sp,
+                        color = Color(0xFF9E9EBF)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = saveTitle,
+                        onValueChange = { saveTitle = it },
+                        label = { Text("Nombre del SCADA", color = Color(0xFF9E9EBF)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !viewModel.isSaving,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF7C4DFF),
+                            unfocusedBorderColor = Color(0xFF3A3A5C),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFF7C4DFF)
+                        )
+                    )
+                    // Mensaje de error AWS si falla
+                    if (viewModel.awsErrorMessage != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            viewModel.awsErrorMessage ?: "",
+                            color = Color(0xFFEF5350),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        showExitDialog = false
-                        navController.navigate(AppScreens.ScadaList.route)
+                        val bitmap = viewModel.generatedBitmap
+                        if (bitmap != null && saveTitle.isNotBlank()) {
+                            // Llama al nuevo saveScada con callbacks AWS
+                            viewModel.saveScada(
+                                title = saveTitle,
+                                currentBitmap = bitmap,
+                                placedSensors = placedSensors.toList(),
+                                onSuccess = {
+                                    showSaveDialog = false
+                                    navController.navigate(AppScreens.ScadaList.route) {
+                                        popUpTo(AppScreens.ScadaList.route) { inclusive = true }
+                                    }
+                                },
+                                onError = { _ ->
+                                    // El error ya se muestra en awsErrorMessage
+                                }
+                            )
+                        }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                    enabled = saveTitle.isNotBlank() && !viewModel.isSaving,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
                 ) {
-                    Text("Abandonar")
+                    if (viewModel.isSaving) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Guardar", color = Color.White)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showSaveDialog = false },
+                    enabled = !viewModel.isSaving
+                ) {
+                    Text("Cancelar", color = Color(0xFF9E9EBF))
+                }
+            }
+        )
+    }
+
+    // DIÁLOGO SALIDA
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            containerColor = Color(0xFF1E1E2E),
+            title = { Text("¿Cerrar Editor?", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Los cambios no guardados se perderán.", color = Color(0xFF9E9EBF)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    navController.navigate(AppScreens.ScadaList.route) {
+                        popUpTo(AppScreens.ScadaList.route) { inclusive = true }
+                    }
+                }) {
+                    Text("Abandonar", color = Color(0xFFE53935))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showExitDialog = false }) {
-                    Text("Continuar editando")
+                    Text("Cancelar", color = Color(0xFF9E9EBF))
                 }
             }
         )
     }
 }
-// HOLA MUNDO
+
+@Composable
+fun SensorCard(name: String, value: String, unit: String) {
+    Card(
+        modifier = Modifier
+            .width(110.dp)
+            .height(64.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = name,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF607D8B),
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFE0E0E0))
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = value,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1A237E)
+                )
+                if (unit.isNotBlank()) {
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = unit,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF5C6BC0),
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+            }
+        }
+    }
+}

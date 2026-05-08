@@ -1,6 +1,5 @@
 package com.jesus.iot01.navigation
 
-// Esta clase define los nombres internos de tus pantallas
 sealed class AppScreens(val route: String) {
     object Login : AppScreens("login_screen")
     object Register : AppScreens("register_screen")
@@ -13,7 +12,7 @@ sealed class AppScreens(val route: String) {
 
     object ScadaView : AppScreens("scada_view_screen")
 
-    object ScadaList : AppScreens("scada_list_screen")   // La nueva pestaña principal
+    object ScadaList : AppScreens("scada_list_screen")
 
     object ScadaEditor : AppScreens("scada_editor_screen")
 
