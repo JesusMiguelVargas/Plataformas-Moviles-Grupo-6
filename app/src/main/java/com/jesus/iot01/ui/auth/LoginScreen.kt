@@ -21,17 +21,20 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.jesus.iot01.R
+import com.jesus.iot01.data.CognitoRepository
+import com.jesus.iot01.data.UserSession
 import com.jesus.iot01.navigation.AppScreens
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(navController: NavController) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    //  Credenciales válidas
-    val validEmail = "Robertito"
-    val validPassword = "12345"
+    val cognitoRepository = remember { CognitoRepository() }
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -39,9 +42,8 @@ fun LoginScreen(navController: NavController) {
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.weight(0.2f))
 
-        // Logo
         Image(
             painter = painterResource(id = R.drawable.logo),
             contentDescription = "Zyntec Logo",
@@ -66,7 +68,7 @@ fun LoginScreen(navController: NavController) {
                 email = it
                 errorMessage = null
             },
-            label = { Text("Usuario") },
+            label = { Text("Email") },
             leadingIcon = {
                 Icon(imageVector = Icons.Default.Email, contentDescription = "Email Icon")
             },
@@ -76,6 +78,7 @@ fun LoginScreen(navController: NavController) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             singleLine = true,
             isError = errorMessage != null,
+            enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color(0xFF2196F3),
                 errorBorderColor = Color(0xFFE53935)
@@ -102,13 +105,14 @@ fun LoginScreen(navController: NavController) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             singleLine = true,
             isError = errorMessage != null,
+            enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color(0xFF2196F3),
                 errorBorderColor = Color(0xFFE53935)
             )
         )
 
-        //  Mensaje de error visible bajo los campos
+        // Mensaje de error
         if (errorMessage != null) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -121,22 +125,42 @@ fun LoginScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(30.dp))
 
+        // Botón con Cognito
         Button(
             onClick = {
                 when {
                     email.isBlank() || password.isBlank() -> {
                         errorMessage = "Por favor completa todos los campos."
                     }
-                    email == validEmail && password == validPassword -> {
-                        //  Credenciales correctas — navegar a Variables
-                        errorMessage = null
-                        navController.navigate(AppScreens.Variables.route) {
-                            popUpTo(AppScreens.Login.route) { inclusive = true }
-                        }
-                    }
                     else -> {
-                        //  Credenciales incorrectas
-                        errorMessage = "Usuario o contraseña incorrectos."
+                        isLoading = true
+                        errorMessage = null
+                        scope.launch {
+                            val result = cognitoRepository.login(email, password)
+                            result.fold(
+                                onSuccess = { user ->
+                                    //  Guardar sesión real
+                                    UserSession.setUser(user)
+                                    android.util.Log.d("COGNITO", "Login OK — userId: ${user.userId}")
+                                    navController.navigate(AppScreens.Variables.route) {
+                                        popUpTo(AppScreens.Login.route) { inclusive = true }
+                                    }
+                                },
+                                onFailure = { e ->
+                                    errorMessage = when {
+                                        e.message?.contains("NotAuthorizedException") == true ||
+                                                e.message?.contains("Incorrect username or password") == true ->
+                                            "Email o contraseña incorrectos."
+                                        e.message?.contains("UserNotConfirmedException") == true ->
+                                            "Debes confirmar tu cuenta. Revisa tu email."
+                                        e.message?.contains("UserNotFoundException") == true ->
+                                            "No existe una cuenta con ese email."
+                                        else -> e.message ?: "Error de conexión."
+                                    }
+                                    isLoading = false
+                                }
+                            )
+                        }
                     }
                 }
             },
@@ -144,12 +168,24 @@ fun LoginScreen(navController: NavController) {
                 .fillMaxWidth()
                 .height(50.dp)
                 .padding(horizontal = 40.dp),
+            enabled = !isLoading,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
         ) {
-            Text(text = "Entrar", fontWeight = FontWeight.Bold)
+            if (isLoading) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(text = "Entrar", fontWeight = FontWeight.Bold)
+            }
         }
 
-        TextButton(onClick = { navController.navigate(AppScreens.Register.route) }) {
+        TextButton(
+            onClick = { navController.navigate(AppScreens.Register.route) },
+            enabled = !isLoading
+        ) {
             Text(text = "¿No tienes cuenta? Regístrate")
         }
 

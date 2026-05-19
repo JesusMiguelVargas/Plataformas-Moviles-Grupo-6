@@ -29,7 +29,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.jesus.iot01.R
+import com.jesus.iot01.data.MqttManager
+import com.jesus.iot01.data.SensoresRepository
 import com.jesus.iot01.navigation.AppScreens
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import kotlin.math.roundToInt
 
 data class PlacedSensor(
@@ -37,13 +44,15 @@ data class PlacedSensor(
     val name: String,
     val value: String,
     val unit: String,
+    val topic: String = "",  // campo topic agregado
     var offset: Offset
 )
 
 data class AvailableSensor(
     val id: String,
     val name: String,
-    val unit: String
+    val unit: String,
+    val topic: String  // campo topic agregado
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,6 +62,7 @@ fun ScadaEditorScreen(
     viewModel: ScadaGenerationViewModel
 ) {
     val context = LocalContext.current
+    val sensoresRepository = remember { SensoresRepository() }
 
     DisposableEffect(Unit) {
         val activity = context as? Activity
@@ -69,21 +79,94 @@ fun ScadaEditorScreen(
     val placedSensors = remember {
         mutableStateListOf<PlacedSensor>().apply {
             preloadedScada?.sensors?.forEach { s ->
-                add(PlacedSensor(s.id, s.name, s.value, s.unit, Offset(s.offsetX, s.offsetY)))
+                add(PlacedSensor(s.id, s.name, s.value, s.unit, "", Offset(s.offsetX, s.offsetY)))
             }
         }
     }
 
-    val availableSensors = remember {
-        mutableStateListOf(
-            AvailableSensor("1", "Voltaje Batería", "V"),
-            AvailableSensor("2", "Estado Motor", ""),
-            AvailableSensor("3", "Temperatura Central", "°C"),
-            AvailableSensor("4", "Presión Sistema", "Bar")
-        ).apply {
-            preloadedScada?.sensors?.forEach { saved ->
-                removeAll { it.id == saved.id }
+    val availableSensors = remember { mutableStateListOf<AvailableSensor>() }
+    var isLoadingSensores by remember { mutableStateOf(true) }
+
+    // Cargar sensores reales desde DynamoDB
+    LaunchedEffect(Unit) {
+        isLoadingSensores = true
+        val result = sensoresRepository.getSensores()
+        result.fold(
+            onSuccess = { remoteSensores ->
+                val disponibles = remoteSensores
+                    .map { s -> AvailableSensor(s.sensorId, s.nombre, s.unidad, s.topico) }
+                    .filter { available ->
+                        placedSensors.none { placed -> placed.id == available.id }
+                    }
+                availableSensors.addAll(disponibles)
+            },
+            onFailure = { e ->
+                android.util.Log.e("EDITOR", "❌ Error cargando sensores: ${e.message}")
             }
+        )
+        isLoadingSensores = false
+    }
+
+    //Referencia al MqttManager para desconectar al salir
+    var mqttManagerRef by remember { mutableStateOf<MqttManager?>(null) }
+
+    // MQTT en tiempo real con delay para no bloquear la UI
+    LaunchedEffect(Unit) {
+        delay(1500) // espera que la pantalla cargue completamente
+
+        val caCert = context.resources.openRawResource(R.raw.aws_root_ca)
+            .bufferedReader().use { it.readText() }
+        val clientCert = context.resources.openRawResource(R.raw.aws_certificate)
+            .bufferedReader().use { it.readText() }
+        val privateKey = context.resources.openRawResource(R.raw.aws_private_key)
+            .bufferedReader().use { it.readText() }
+
+        val manager = MqttManager { topic, payload ->
+            try {
+                val json = JSONObject(payload)
+                val newValue = when {
+                    json.has("distancia")   -> String.format("%.1f", json.optDouble("distancia", 0.0))
+                    json.has("estado")      -> json.optString("estado", "--")
+                    json.has("valor")       -> json.optString("valor", "--")
+                    json.has("temperatura") -> String.format("%.1f", json.optDouble("temperatura", 0.0))
+                    json.has("humedad")     -> String.format("%.1f", json.optDouble("humedad", 0.0))
+                    else -> payload
+                }
+
+                //  Actualizar sensor colocado que coincide con el tópico
+                for (i in placedSensors.indices) {
+                    if (placedSensors[i].topic == topic) {
+                        placedSensors[i] = placedSensors[i].copy(value = newValue)
+                    }
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("MQTT_EDITOR", "Error: ${e.message}")
+            }
+        }
+
+        mqttManagerRef = manager
+
+        withContext(Dispatchers.IO) {
+            try {
+                // Suscribirse a tópicos reales de los sensores
+                val topicos = placedSensors.map { it.topic }
+                    .plus(availableSensors.map { it.topic })
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                manager.connect(caCert, clientCert, privateKey, topicos)
+                android.util.Log.d("MQTT_EDITOR", "✅ MQTT conectado en editor — tópicos: $topicos")
+            } catch (e: Exception) {
+                android.util.Log.e("MQTT_EDITOR", "❌ Error conectando: ${e.message}")
+            }
+        }
+    }
+
+    // Desconectar al salir de la pantalla
+    DisposableEffect(Unit) {
+        onDispose {
+            mqttManagerRef?.disconnect()
+            android.util.Log.d("MQTT_EDITOR", "MQTT desconectado del editor")
         }
     }
 
@@ -107,7 +190,6 @@ fun ScadaEditorScreen(
             .fillMaxSize()
             .background(Color(0xFF0D0D0D))
     ) {
-        // -LIENZO SCADA
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -150,12 +232,15 @@ fun ScadaEditorScreen(
                             }
                         }
                 ) {
-                    SensorCard(name = sensor.name, value = sensor.value, unit = sensor.unit)
+                    SensorCard(
+                        name = sensor.name,
+                        value = sensor.value,
+                        unit = sensor.unit
+                    )
                 }
             }
         }
 
-        // BARRA SUPERIOR
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -172,7 +257,6 @@ fun ScadaEditorScreen(
                 Icon(Icons.Default.Close, contentDescription = "Salir", tint = Color.White)
             }
 
-            // Botón guardar — muestra loading mientras sube a AWS
             Button(
                 onClick = { showSaveDialog = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
@@ -206,7 +290,6 @@ fun ScadaEditorScreen(
             }
         }
 
-        // BOTÓN ABRIR PANEL
         if (!isPaletteExpanded) {
             Button(
                 onClick = { isPaletteExpanded = true },
@@ -228,7 +311,6 @@ fun ScadaEditorScreen(
             }
         }
 
-        // PANEL LATERAL
         Surface(
             modifier = Modifier
                 .width(animatedPaletteWidth)
@@ -275,7 +357,24 @@ fun ScadaEditorScreen(
                     HorizontalDivider(color = Color(0xFF3A3A5C))
                     Spacer(Modifier.height(8.dp))
 
-                    if (availableSensors.isEmpty()) {
+                    if (isLoadingSensores) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF5E35B1),
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text("Cargando...", color = Color.Gray, fontSize = 11.sp)
+                            }
+                        }
+                    } else if (availableSensors.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -289,55 +388,64 @@ fun ScadaEditorScreen(
                                 textAlign = TextAlign.Center
                             )
                         }
-                    }
-
-                    availableSensors.forEach { sensor ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF2A2A3E)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    } else {
+                        availableSensors.forEach { sensor ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFF2A2A3E)
+                                ),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        sensor.name,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    if (sensor.unit.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            sensor.unit,
-                                            fontSize = 10.sp,
-                                            color = Color(0xFF9E9EBF)
+                                            sensor.name,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 12.sp,
+                                            color = Color.White
+                                        )
+                                        if (sensor.unit.isNotBlank()) {
+                                            Text(
+                                                sensor.unit,
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF9E9EBF)
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            // PlacedSensor ahora incluye el tópico real
+                                            placedSensors.add(
+                                                PlacedSensor(
+                                                    id = sensor.id,
+                                                    name = sensor.name,
+                                                    value = "--",
+                                                    unit = sensor.unit,
+                                                    topic = sensor.topic,
+                                                    offset = Offset(300f, 200f)
+                                                )
+                                            )
+                                            // Suscribirse al tópico del nuevo sensor
+                                            mqttManagerRef?.subscribeToTopic(sensor.topic)
+                                            availableSensors.remove(sensor)
+                                        },
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .background(Color(0xFF5E35B1), CircleShape)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        placedSensors.add(
-                                            PlacedSensor(
-                                                sensor.id, sensor.name, "0.0",
-                                                sensor.unit, Offset(300f, 200f)
-                                            )
-                                        )
-                                        availableSensors.remove(sensor)
-                                    },
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .background(Color(0xFF5E35B1), CircleShape)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
                                 }
                             }
                         }
@@ -347,7 +455,6 @@ fun ScadaEditorScreen(
         }
     }
 
-    // DIÁLOGO GUARDAR
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { if (!viewModel.isSaving) showSaveDialog = false },
@@ -378,7 +485,6 @@ fun ScadaEditorScreen(
                             cursorColor = Color(0xFF7C4DFF)
                         )
                     )
-                    // Mensaje de error AWS si falla
                     if (viewModel.awsErrorMessage != null) {
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -394,7 +500,6 @@ fun ScadaEditorScreen(
                     onClick = {
                         val bitmap = viewModel.generatedBitmap
                         if (bitmap != null && saveTitle.isNotBlank()) {
-                            // Llama al nuevo saveScada con callbacks AWS
                             viewModel.saveScada(
                                 title = saveTitle,
                                 currentBitmap = bitmap,
@@ -405,9 +510,7 @@ fun ScadaEditorScreen(
                                         popUpTo(AppScreens.ScadaList.route) { inclusive = true }
                                     }
                                 },
-                                onError = { _ ->
-                                    // El error ya se muestra en awsErrorMessage
-                                }
+                                onError = { _ -> }
                             )
                         }
                     },
@@ -436,13 +539,16 @@ fun ScadaEditorScreen(
         )
     }
 
-    // DIÁLOGO SALIDA
     if (showExitDialog) {
         AlertDialog(
             onDismissRequest = { showExitDialog = false },
             containerColor = Color(0xFF1E1E2E),
-            title = { Text("¿Cerrar Editor?", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Los cambios no guardados se perderán.", color = Color(0xFF9E9EBF)) },
+            title = {
+                Text("¿Cerrar Editor?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text("Los cambios no guardados se perderán.", color = Color(0xFF9E9EBF))
+            },
             confirmButton = {
                 TextButton(onClick = {
                     navController.navigate(AppScreens.ScadaList.route) {

@@ -36,7 +36,6 @@ class AwsScadaRepository {
     companion object {
         private const val BASE_URL =
             "https://5cedy70arf.execute-api.us-east-1.amazonaws.com/prod"
-        const val TEMP_USER_ID = "user_test_001"
     }
 
     private val client = OkHttpClient.Builder()
@@ -45,18 +44,13 @@ class AwsScadaRepository {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Solo hace parseo doble si detecta el wrapper de statusCode
     private fun parseApiGatewayResponse(rawBody: String): JSONObject {
         val outer = JSONObject(rawBody)
         return if (outer.has("statusCode") && outer.has("body")) {
-            val inner = outer.getString("body")
-            JSONObject(inner)
-        } else {
-            outer
-        }
+            JSONObject(outer.getString("body"))
+        } else outer
     }
 
-    //  GUARDAR SCADA
     suspend fun saveScada(
         scadaId: String,
         title: String,
@@ -78,7 +72,7 @@ class AwsScadaRepository {
 
             val metadataJson = JSONObject().apply {
                 put("scadaId", scadaId)
-                put("userId", TEMP_USER_ID)
+                put("userId", UserSession.userId) // ✅ userId real
                 put("title", title)
                 put("sensors", sensorsArray)
             }
@@ -90,20 +84,19 @@ class AwsScadaRepository {
 
             val metadataResponse = client.newCall(metadataRequest).execute()
             val metadataBody = metadataResponse.body?.string()
-                ?: return@withContext Result.failure(Exception("Respuesta vacía de API Gateway"))
+                ?: return@withContext Result.failure(Exception("Respuesta vacía"))
 
             android.util.Log.d("AWS_DEBUG", "Respuesta saveScada: $metadataBody")
 
             val parsedResponse = parseApiGatewayResponse(metadataBody)
 
             if (!parsedResponse.has("signedUrl")) {
-                val errorMsg = parsedResponse.optString("error", "Sin signedUrl en respuesta")
+                val errorMsg = parsedResponse.optString("error", "Sin signedUrl")
                 return@withContext Result.failure(Exception(errorMsg))
             }
 
             val signedUrl = parsedResponse.getString("signedUrl")
 
-            // Subir imagen a S3
             val stream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
             val imageBytes = stream.toByteArray()
@@ -116,22 +109,18 @@ class AwsScadaRepository {
             val uploadResponse = client.newCall(uploadRequest).execute()
             android.util.Log.d("AWS_DEBUG", "Upload S3 code: ${uploadResponse.code}")
 
-            if (uploadResponse.isSuccessful) {
-                Result.success(scadaId)
-            } else {
-                Result.failure(Exception("Error subiendo imagen a S3: ${uploadResponse.code}"))
-            }
+            if (uploadResponse.isSuccessful) Result.success(scadaId)
+            else Result.failure(Exception("Error subiendo imagen: ${uploadResponse.code}"))
 
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    // CARGAR SCADAS DEL USUARIO
     suspend fun getScadas(): Result<List<RemoteScada>> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("$BASE_URL/scadas?userId=$TEMP_USER_ID")
+                .url("$BASE_URL/scadas?userId=${UserSession.userId}") // ✅ userId real
                 .get()
                 .build()
 
@@ -143,15 +132,10 @@ class AwsScadaRepository {
 
             val parsed = parseApiGatewayResponse(body)
 
-            if (!parsed.has("scadas")) {
-                return@withContext Result.success(emptyList())
-            }
+            if (!parsed.has("scadas")) return@withContext Result.success(emptyList())
 
             val scadasArray = parsed.getJSONArray("scadas")
-
-            if (scadasArray.length() == 0) {
-                return@withContext Result.success(emptyList())
-            }
+            if (scadasArray.length() == 0) return@withContext Result.success(emptyList())
 
             val scadas = mutableListOf<RemoteScada>()
 
@@ -193,7 +177,6 @@ class AwsScadaRepository {
         }
     }
 
-    // DESCARGAR IMAGEN DESDE S3
     suspend fun downloadImage(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder().url(imageUrl).get().build()
@@ -206,7 +189,6 @@ class AwsScadaRepository {
         }
     }
 
-    // ACTUALIZAR SCADA
     suspend fun updateScada(
         scadaId: String,
         title: String,
@@ -228,7 +210,7 @@ class AwsScadaRepository {
 
             val json = JSONObject().apply {
                 put("scadaId", scadaId)
-                put("userId", TEMP_USER_ID)
+                put("userId", UserSession.userId) // ✅ userId real
                 put("title", title)
                 put("sensors", sensorsArray)
             }
@@ -247,7 +229,7 @@ class AwsScadaRepository {
             val parsedResponse = parseApiGatewayResponse(body)
 
             if (!parsedResponse.has("signedUrl")) {
-                val errorMsg = parsedResponse.optString("error", "Sin signedUrl en respuesta")
+                val errorMsg = parsedResponse.optString("error", "Sin signedUrl")
                 return@withContext Result.failure(Exception(errorMsg))
             }
 
@@ -265,23 +247,19 @@ class AwsScadaRepository {
             val uploadResponse = client.newCall(uploadRequest).execute()
             android.util.Log.d("AWS_DEBUG", "Update S3 code: ${uploadResponse.code}")
 
-            if (uploadResponse.isSuccessful) {
-                Result.success(scadaId)
-            } else {
-                Result.failure(Exception("Error actualizando imagen: ${uploadResponse.code}"))
-            }
+            if (uploadResponse.isSuccessful) Result.success(scadaId)
+            else Result.failure(Exception("Error actualizando: ${uploadResponse.code}"))
 
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    // ELIMINAR SCADA
     suspend fun deleteScada(scadaId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val json = JSONObject().apply {
                 put("scadaId", scadaId)
-                put("userId", TEMP_USER_ID)
+                put("userId", UserSession.userId) // ✅ userId real
             }
 
             val request = Request.Builder()
@@ -291,11 +269,8 @@ class AwsScadaRepository {
 
             val response = client.newCall(request).execute()
 
-            if (response.isSuccessful) {
-                Result.success(Unit)
-            } else {
-                Result.failure(Exception("Error eliminando SCADA: ${response.code}"))
-            }
+            if (response.isSuccessful) Result.success(Unit)
+            else Result.failure(Exception("Error eliminando: ${response.code}"))
 
         } catch (e: Exception) {
             Result.failure(e)

@@ -254,7 +254,7 @@ class ScadaGenerationViewModel : ViewModel() {
     fun generateScada(userPrompt: String, onImageReady: () -> Unit) {
         if (userPrompt.isBlank()) return
 
-        val apiKey = ""
+        val apiKey = "Bearer "
 
         viewModelScope.launch {
             isGenerating = true
